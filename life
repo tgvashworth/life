@@ -1,0 +1,149 @@
+#!/usr/bin/env node
+
+require('es6-shim');
+var fs = require('fs');
+var path = require('path');
+var through = require('through');
+var split = require('split');
+var moment = require('moment');
+var level = require('level');
+var levelgraph = require('levelgraph');
+var sublevel = require('level-sublevel');
+var chalk = require('chalk');
+
+var path = path.resolve(home(), '.life');
+var db = sublevel(level(path));
+var entries = db.sublevel('entries', { valueEncoding: 'json' });
+var log = db.sublevel('log');
+var meta = db.sublevel('meta');
+var graph = levelgraph(db.sublevel('graph'));
+
+var dateFormat = 'DD/MM/YY @ hh:mma';
+
+var words = process.argv.slice(2).join(' ');
+var entry = words.split(' ').reduce(function (memo, arg, index, args) {
+    if (arg && arg.startsWith('@')) {
+        var value = args[index + 1];
+        if (value) {
+            args[index + 1] = null;
+        }
+        memo.data.push({
+            key: arg.slice(1),
+            value: value
+        });
+    } else if (arg &&  arg.startsWith('+')) {
+        memo.tags.push(arg.slice(1));
+    } else if (arg) {
+        memo.annotation = (memo.annotation + ' ' + arg).trim();
+    }
+    return memo;
+}, { data: [], tags: [], annotation: '' });
+
+/**
+ * Queries:
+ *     - entries between x & y
+ *     - entries with tag
+ *     - entries with key
+ *     - entry with id
+ *
+ * Graph:
+ *     timestamp -> tagged -> tag
+ *     timestamp -> has -> key
+ *
+ * Entries:
+ *     timestamp -> annotation
+ *
+ * Log:
+ *     k:key:timestamp -> value
+ *     t:tag:timestamp -> annotation
+ *
+ * Meta:
+ *     stuff
+ *
+ */
+
+if (entry.annotation) {
+    return meta.get('id', function (err, id) {
+        if (err) {
+            if (err.notFound) {
+                id = 0;
+            } else {
+                throw err;
+            }
+        }
+
+        var timestamp = Date.now();
+        id += 1;
+
+        entry.id = id;
+        entry.timestamp = timestamp;
+
+        var entryOps = [{ key: key('a', timestamp), value: entry, type: 'put' }];
+        var logOps = [];
+        var graphOps = [];
+
+        entry.tags.forEach(function (tag) {
+            logOps.push({ key: key('t', tag, timestamp), value: entry.annotation, type: 'put' })
+            graphOps.push({ subject: timestamp, predicate: 'tagged', object: tag });
+        });
+        entry.data.forEach(function (datum) {
+            logOps.push({ key: key('k', datum.key, timestamp), value: datum.value, type: 'put' })
+            graphOps.push({ subject: timestamp, predicate: 'has', object: datum.key });
+        });
+
+        entries.batch(entryOps);
+        log.batch(logOps);
+        graph.put(graphOps);
+        meta.put('id', id);
+        logEntry(entry);
+    });
+}
+
+entries
+    .createReadStream({ start: key('a', Date.now() - (1000 * 60 * 60)), end: key('a', '~') })
+    .on('data', function (data) {
+        logEntry(data.value);
+    });
+
+/**
+ * Utils
+ */
+
+function key() {
+    return [].slice.call(arguments).join('~');
+}
+
+function unkey(key) {
+    var keys = [].slice.call(arguments, 1);
+    var segs = key.split('~');
+    return segs.reduce(function (memo, seg, index) {
+        if (keys[index]) {
+            memo[keys[index]] = seg;
+        }
+        return memo;
+    }, {});
+}
+
+function home() {
+    return process.env[(process.platform == 'win32') ? 'USERPROFILE' : 'HOME'];
+}
+
+function logEntry(entry) {
+    var date = moment(parseInt(entry.timestamp, 10)).format(dateFormat);
+    var args = [chalk.grey(date + ' :'), entry.annotation];
+    if (entry.tags.length) {
+        args.push(
+            chalk.blue('+' + entry.tags.join(' +'))
+        );
+    }
+    if (entry.id) {
+        args.push(
+            chalk.grey('#'+entry.id)
+        );
+    }
+    console.log.apply(console, args);
+    var dataBuffer = entry.data.map(function (datum) {
+        return chalk.green('@' + datum.key) + ' ' + chalk.yellow(datum.value)
+    });
+    dataBuffer.length && console.log(' '.repeat(date.length), ' ', dataBuffer.join(', '));
+}
