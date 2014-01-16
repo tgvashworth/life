@@ -4,7 +4,7 @@
   "description": "Life log.",
   "preferGlobal": true,
   "bin": {
-    "life": "life-start"
+    "life": "life"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

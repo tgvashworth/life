@@ -35,13 +35,19 @@ var entry = words.split(' ').reduce(function (memo, arg, index, args) {
             key: arg.slice(1),
             value: value
         });
-    } else if (arg &&  arg.startsWith('+')) {
-        memo.tags.push(arg.slice(1));
-    } else if (arg) {
-        memo.annotation = (memo.annotation + ' ' + arg).trim();
+    } else {
+        if (arg && arg.startsWith('+')) {
+            var match = arg.match(/^\+([a-z0-9_-]+)/i);
+            memo.tags.add(match[1].toLowerCase());
+        }
+        if (arg) {
+            memo.annotation = (memo.annotation + ' ' + arg).trim();
+        }
     }
     return memo;
-}, { data: [], tags: [], annotation: '' });
+}, { data: [], tags: new Set(), annotation: '' });
+
+entry.tags = getIterableElements(entry.tags);
 
 /**
  * Note to self
@@ -158,4 +164,12 @@ function logEntry(entry) {
         return chalk.green('@' + datum.key) + ' ' + chalk.yellow(datum.value)
     });
     dataBuffer.length && console.log(' '.repeat(date.length), ' ', dataBuffer.join(', '));
+}
+
+function getIterableElements(iterable) {
+    var elems = [];
+    iterable.forEach(function (elem) {
+        elems.push(elem);
+    });
+    return elems;
 }
