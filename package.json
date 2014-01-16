@@ -20,6 +20,7 @@
     "level": "~0.18.0",
     "level-sublevel": "~5.2.0",
     "levelgraph": "~0.8.0",
-    "chalk": "~0.4.0"
+    "chalk": "~0.4.0",
+    "async": "~0.2.9"
   }
 }

@@ -10,6 +10,7 @@ var level = require('level');
 var levelgraph = require('levelgraph');
 var sublevel = require('level-sublevel');
 var chalk = require('chalk');
+var async = require('async');
 
 var path = path.resolve(home(), '.life');
 var db = sublevel(level(path));
@@ -51,11 +52,11 @@ var entry = words.split(' ').reduce(function (memo, arg, index, args) {
  *     timestamp -> has -> key
  *
  * Entries:
- *     timestamp -> annotation
+ *     a~timestamp -> entry
  *
  * Log:
- *     k:key:timestamp -> value
- *     t:tag:timestamp -> annotation
+ *     k~key~timestamp -> value
+ *     t~tag~timestamp -> entry
  *
  * Meta:
  *     stuff
@@ -83,7 +84,7 @@ if (entry.annotation) {
         var graphOps = [];
 
         entry.tags.forEach(function (tag) {
-            logOps.push({ key: key('t', tag, timestamp), value: entry.annotation, type: 'put' })
+            logOps.push({ key: key('t', tag, timestamp), value: entry, type: 'put' })
             graphOps.push({ subject: timestamp, predicate: 'tagged', object: tag });
         });
         entry.data.forEach(function (datum) {
@@ -91,11 +92,15 @@ if (entry.annotation) {
             graphOps.push({ subject: timestamp, predicate: 'has', object: datum.key });
         });
 
-        entries.batch(entryOps);
-        log.batch(logOps);
-        graph.put(graphOps);
-        meta.put('id', id);
-        logEntry(entry);
+        async.parallel([
+            entries.batch.bind(entries, entryOps),
+            log.batch.bind(log, logOps),
+            graph.put.bind(graph, graphOps),
+            meta.put.bind(meta, 'id', id)
+        ], function (err) {
+            if (err) throw err;
+            logEntry(entry);
+        });
     });
 }
 
