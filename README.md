@@ -4,6 +4,12 @@ Unix-y life logger. Writes to a leveldb at `~/.life`. Inspired by [sh-todo](http
 
 I want to use this to keep metrics on myself, which is why some of the db stuff might seem OTT. And yeah, this is probably broken for you.
 
+If you want to install it:
+
+- clone
+- `cd life`
+- `npm link`
+
 ### Usage
 
 Write some words.
