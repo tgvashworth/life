@@ -21,6 +21,9 @@ var graph = levelgraph(db.sublevel('graph'));
 
 var dateFormat = 'DD/MM/YY @ hh:mma';
 
+/**
+ * Process any args as a new entry
+ */
 var words = process.argv.slice(2).join(' ');
 var entry = words.split(' ').reduce(function (memo, arg, index, args) {
     if (arg && arg.startsWith('@')) {
@@ -41,6 +44,8 @@ var entry = words.split(' ').reduce(function (memo, arg, index, args) {
 }, { data: [], tags: [], annotation: '' });
 
 /**
+ * Note to self
+ *
  * Queries:
  *     - entries between x & y
  *     - entries with tag
@@ -63,6 +68,7 @@ var entry = words.split(' ').reduce(function (memo, arg, index, args) {
  *
  */
 
+// We got a new entry, add it
 if (entry.annotation) {
     return meta.get('id', function (err, id) {
         if (err) {
@@ -104,8 +110,9 @@ if (entry.annotation) {
     });
 }
 
+// No entry, read out the last 24 hrs
 entries
-    .createReadStream({ start: key('a', Date.now() - (1000 * 60 * 60)), end: key('a', '~') })
+    .createReadStream({ start: key('a', Date.now() - (1000 * 60 * 60 * 24)), end: key('a', '~') })
     .on('data', function (data) {
         logEntry(data.value);
     });
