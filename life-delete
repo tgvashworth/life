@@ -1,0 +1,87 @@
+#!/usr/bin/env node
+
+require('es6-shim');
+var path = require('path');
+var level = require('level');
+var levelgraph = require('levelgraph');
+var sublevel = require('level-sublevel');
+var async = require('async');
+var chalk = require('chalk');
+var utils = require('./life-utils');
+var RSVP = require('rsvp');
+var Promise = RSVP.Promise;
+var _ = require('lodash');
+
+var path = utils.home();
+var db = sublevel(level(path));
+var entries = db.sublevel('entries', { valueEncoding: 'json' });
+var log = db.sublevel('log');
+var meta = db.sublevel('meta');
+var graph = levelgraph(db.sublevel('graph'));
+
+var entriesGet = RSVP.denodeify(entries.get.bind(entries));
+var logGet = RSVP.denodeify(log.get.bind(log));
+var graphGet = RSVP.denodeify(graph.get.bind(graph));
+
+var ids = process.argv.slice(2);
+var promises = ids.map(getTimestamp);
+RSVP.all(promises)
+    // get all the tags & data out for this timestamp
+    .then(map(getEntry))
+    .then(map(deleteEntry))
+    .catch(function (why) {
+        if (why.notFound) {
+            return console.log('No matching entry found.');
+        }
+        console.error(why.stack);
+    })
+
+function getTimestamp(id) {
+    return logGet(utils.key('i', id));
+}
+
+function deleteEntry(entry) {
+
+    var timestamp = entry.timestamp;
+    var id = entry.id;
+    entry.data = entry.data || [];
+    entry.tags = entry.tags || [];
+
+    var entryOps = [{ key: utils.key('a', timestamp), type: 'del' }];
+    var logOps = [{ key: utils.key('i', id), type: 'del' }];
+    var graphOps = [];
+
+    entry.tags.forEach(function (tag) {
+        logOps.push({ key: utils.key('t', tag, timestamp), type: 'del' })
+        graphOps.push({ subject: timestamp, predicate: 'tagged', object: tag });
+    });
+    entry.data.forEach(function (datum) {
+        logOps.push({ key: utils.key('k', datum.key, timestamp), type: 'del' })
+        graphOps.push({ subject: timestamp, predicate: 'has', object: datum.key });
+    });
+
+    async.parallel([
+        entries.batch.bind(entries, entryOps),
+        log.batch.bind(log, logOps),
+        graph.del.bind(graph, graphOps)
+    ], function (err) {
+        if (err) return console.error(why);
+        utils.logEntry(entry, chalk.red('x'));
+    });
+}
+
+function getEntry(timestamp) {
+    return entriesGet(utils.key('a', timestamp));
+}
+
+function timestampToObject(timestamp) {
+    return {
+        timestamp: timestamp
+    };
+}
+
+function map(fn) {
+    return function (iterable) {
+        return Promise.all(iterable.map(fn));
+    }
+}

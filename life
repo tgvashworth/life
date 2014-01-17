@@ -1,27 +1,20 @@
 #!/usr/bin/env node
 
 require('es6-shim');
-var fs = require('fs');
 var path = require('path');
-var through = require('through');
-var split = require('split');
-var moment = require('moment');
+var chalk = require('chalk');
 var level = require('level');
 var levelgraph = require('levelgraph');
 var sublevel = require('level-sublevel');
-var chalk = require('chalk');
 var async = require('async');
+var utils = require('./life-utils');
 
-var path = resolveDataDir();
+var path = utils.home();
 var db = sublevel(level(path));
 var entries = db.sublevel('entries', { valueEncoding: 'json' });
 var log = db.sublevel('log');
 var meta = db.sublevel('meta');
 var graph = levelgraph(db.sublevel('graph'));
-
-var dateFormat = 'DD/MM/YY @ hh:mma';
-var tagRegex = /^\+([a-z0-9_-]+)/i;
-var allTagsRegex = /(\+[a-z0-9_-]+)/ig;
 
 /**
  * Process any args as a new entry
@@ -39,7 +32,7 @@ var entry = words.split(' ').reduce(function (memo, arg, index, args) {
         });
     } else {
         if (arg && arg.startsWith('+')) {
-            var match = arg.match(tagRegex);
+            var match = arg.match(utils.tagRegex);
             memo.tags.add(match[1].toLowerCase());
         }
         if (arg) {
@@ -49,7 +42,7 @@ var entry = words.split(' ').reduce(function (memo, arg, index, args) {
     return memo;
 }, { data: [], tags: new Set(), annotation: '' });
 
-entry.tags = getIterableElements(entry.tags);
+entry.tags = utils.getIterableElements(entry.tags);
 
 /**
  * Note to self
@@ -94,16 +87,16 @@ if (entry.annotation) {
         entry.id = id;
         entry.timestamp = timestamp;
 
-        var entryOps = [{ key: key('a', timestamp), value: entry, type: 'put' }];
-        var logOps = [{ key: key('i', id), value: timestamp, type: 'put' }];
+        var entryOps = [{ key: utils.key('a', timestamp), value: entry, type: 'put' }];
+        var logOps = [{ key: utils.key('i', id), value: timestamp, type: 'put' }];
         var graphOps = [];
 
         entry.tags.forEach(function (tag) {
-            logOps.push({ key: key('t', tag, timestamp), value: entry, type: 'put' })
+            logOps.push({ key: utils.key('t', tag, timestamp), value: entry, type: 'put' })
             graphOps.push({ subject: timestamp, predicate: 'tagged', object: tag });
         });
         entry.data.forEach(function (datum) {
-            logOps.push({ key: key('k', datum.key, timestamp), value: datum.value, type: 'put' })
+            logOps.push({ key: utils.key('k', datum.key, timestamp), value: datum.value, type: 'put' })
             graphOps.push({ subject: timestamp, predicate: 'has', object: datum.key });
         });
 
@@ -114,80 +107,17 @@ if (entry.annotation) {
             meta.put.bind(meta, 'id', id)
         ], function (err) {
             if (err) throw err;
-            logEntry(entry);
+            utils.logEntry(entry, chalk.green('+'));
         });
     });
 }
 
 // No entry, read out the last 24 hrs
 entries
-    .createReadStream({ start: key('a', Date.now() - (1000 * 60 * 60 * 24)), end: key('a', '~') })
+    .createReadStream({
+        start: utils.key('a', Date.now() - (1000 * 60 * 60 * 24)),
+        end: utils.key('a', '~')
+    })
     .on('data', function (data) {
-        logEntry(data.value);
+        utils.logEntry(data.value);
     });
-
-/**
- * Utils
- */
-
-function key() {
-    return [].slice.call(arguments).join('~');
-}
-
-function unkey(key) {
-    var keys = [].slice.call(arguments, 1);
-    var segs = key.split('~');
-    return segs.reduce(function (memo, seg, index) {
-        if (keys[index]) {
-            memo[keys[index]] = seg;
-        }
-        return memo;
-    }, {});
-}
-
-function resolveDataDir() {
-    var home = process.env[(process.platform == 'win32') ? 'USERPROFILE' : 'HOME'];
-    var dataHome;
-
-    if (process.platform === 'darwin') {
-        // Equivalent of XDG_DATA_HOME based on this SO answer:
-        // http://stackoverflow.com/a/5084892/350385
-        dataHome = path.join(home, 'Library', 'Life');
-    } else if ((new Set(['freebsd', 'sunos', 'linux'])).has(process.platform)) {
-        // Based on the XDG basedir spec:
-        // http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html
-        dataHome = process.env['XDG_DATA_HOME'] ||
-            path.join(home, '.local', 'share', 'life');
-    } else {
-        dataHome = path.join(home, '.life');
-    }
-
-    return dataHome;
-}
-
-function logEntry(entry) {
-    var date = moment(parseInt(entry.timestamp, 10)).format(dateFormat);
-    var annotation = entry.annotation.replace(allTagsRegex, function (match, tag, offset, string) {
-        return chalk.blue(tag)
-    });
-    var args = [chalk.grey(date + ' :'), annotation];
-
-    if (entry.id) {
-        args.push(
-            chalk.grey('#'+entry.id)
-        );
-    }
-    console.log.apply(console, args);
-    var dataBuffer = entry.data.map(function (datum) {
-        return chalk.green('@' + datum.key) + ' ' + chalk.yellow(datum.value)
-    });
-    dataBuffer.length && console.log(' '.repeat(date.length), ' ', dataBuffer.join(', '));
-}
-
-function getIterableElements(iterable) {
-    var elems = [];
-    iterable.forEach(function (elem) {
-        elems.push(elem);
-    });
-    return elems;
-}
