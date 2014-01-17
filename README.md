@@ -1,6 +1,6 @@
 # life
 
-Unix-y life logger. Writes to a leveldb at `~/.life`. Inspired by [sh-todo](https://github.com/asb/sh-todo).
+Unix-y life logger. Writes to a leveldb at `$XDG_DATA_HOME/life`. Inspired by [sh-todo](https://github.com/asb/sh-todo).
 
 I want to use this to keep metrics on myself, which is why some of the db stuff might seem OTT. And yeah, this is probably broken for you.
 
