@@ -20,6 +20,8 @@ var meta = db.sublevel('meta');
 var graph = levelgraph(db.sublevel('graph'));
 
 var dateFormat = 'DD/MM/YY @ hh:mma';
+var tagRegex = /^\+([a-z0-9_-]+)/i;
+var allTagsRegex = /(\+[a-z0-9_-]+)/ig;
 
 /**
  * Process any args as a new entry
@@ -37,7 +39,7 @@ var entry = words.split(' ').reduce(function (memo, arg, index, args) {
         });
     } else {
         if (arg && arg.startsWith('+')) {
-            var match = arg.match(/^\+([a-z0-9_-]+)/i);
+            var match = arg.match(tagRegex);
             memo.tags.add(match[1].toLowerCase());
         }
         if (arg) {
@@ -68,9 +70,10 @@ entry.tags = getIterableElements(entry.tags);
  * Log:
  *     k~key~timestamp -> value
  *     t~tag~timestamp -> entry
+ *     i~id -> timestamp
  *
  * Meta:
- *     stuff
+ *     id -> last id
  *
  */
 
@@ -92,7 +95,7 @@ if (entry.annotation) {
         entry.timestamp = timestamp;
 
         var entryOps = [{ key: key('a', timestamp), value: entry, type: 'put' }];
-        var logOps = [];
+        var logOps = [{ key: key('i', id), value: timestamp, type: 'put' }];
         var graphOps = [];
 
         entry.tags.forEach(function (tag) {
@@ -148,12 +151,11 @@ function home() {
 
 function logEntry(entry) {
     var date = moment(parseInt(entry.timestamp, 10)).format(dateFormat);
-    var args = [chalk.grey(date + ' :'), entry.annotation];
-    if (entry.tags.length) {
-        args.push(
-            chalk.blue('+' + entry.tags.join(' +'))
-        );
-    }
+    var annotation = entry.annotation.replace(allTagsRegex, function (match, tag, offset, string) {
+        return chalk.blue(tag)
+    });
+    var args = [chalk.grey(date + ' :'), annotation];
+
     if (entry.id) {
         args.push(
             chalk.grey('#'+entry.id)
